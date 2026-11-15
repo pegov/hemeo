@@ -48,6 +48,7 @@ pub(crate) fn run(
     socket: Option<PathBuf>,
     on_request: Option<String>,
     on_accept: Option<String>,
+    tray: bool,
 ) -> Result<()> {
     ensure!(
         !secret.is_empty() && secret.len() <= 4096,
@@ -55,6 +56,20 @@ pub(crate) fn run(
     );
     let socket = socket_path(socket, false)?;
     let listener = control_listener(&socket)?;
+    let tray = if tray {
+        use ksni::blocking::TrayMethods;
+        Some(
+            crate::tray::Tray {
+                pending: false,
+                socket: socket.clone(),
+            }
+            .spawn()
+            .context("start system tray")?,
+        )
+    } else {
+        None
+    };
+    let incoming_tray = tray.clone();
     let pending: Arc<Mutex<Option<Pending>>> = Arc::new(Mutex::new(None));
     let incoming = Arc::clone(&pending);
     let (accepted, approvals) = mpsc::channel();
@@ -88,7 +103,12 @@ pub(crate) fn run(
                     );
                     let mime_type = offer.mime_type.clone();
                     let bytes = offer.data.len();
-                    *incoming.lock().unwrap() = Some(offer);
+                    let mut pending = incoming.lock().unwrap();
+                    *pending = Some(offer);
+                    if let Some(tray) = &incoming_tray {
+                        tray.update(|tray| tray.pending = true);
+                    }
+                    drop(pending);
                     hook(&on_request, &server, &mime_type, bytes);
                     if approvals.recv().is_err() {
                         return;
@@ -135,6 +155,9 @@ pub(crate) fn run(
             ensure!(&response == b"OK\n", "content was not accepted");
             let mut offer = pending.take().unwrap();
             drop(pending);
+            if let Some(tray) = &tray {
+                tray.update(|tray| tray.pending = false);
+            }
             if let Err(error) = write_frame(&mut offer.stream, &offer.cipher, 4, b"OK") {
                 eprintln!("clipboard copied, but acknowledgment failed: {error}");
             }

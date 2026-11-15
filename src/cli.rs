@@ -35,6 +35,8 @@ pub(crate) enum Action {
         on_request: Option<String>,
         #[arg(long, help = "Shell command to run after copying succeeds")]
         on_accept: Option<String>,
+        #[arg(long, help = "Show a system tray icon with an Accept action")]
+        tray: bool,
     },
     #[command(about = "Offer the current clipboard through the running server")]
     Send {

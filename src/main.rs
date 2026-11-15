@@ -4,6 +4,7 @@ mod commands;
 mod control;
 mod protocol;
 mod server;
+mod tray;
 
 use anyhow::Result;
 use clap::Parser;
@@ -27,7 +28,8 @@ fn main() -> Result<()> {
             socket,
             on_request,
             on_accept,
-        } => client::run(server, secret, socket, on_request, on_accept),
+            tray,
+        } => client::run(server, secret, socket, on_request, on_accept, tray),
         action @ (Action::Accept { .. } | Action::Send { .. }) => commands::run(action),
     }
 }

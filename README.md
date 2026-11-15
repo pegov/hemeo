@@ -45,6 +45,20 @@ hemeo client --server 192.168.1.10:7331 --secret 'your-shared-secret' \
   --on-accept 'notify-send "Clipboard received" "Copied from $HEMEO_SERVER"'
 ```
 
+Add `--tray` to the client to show a system tray icon:
+
+```sh
+hemeo client --server 192.168.1.10:7331 --secret 'your-shared-secret' --tray
+```
+
+The placeholder icon is gray while idle and amber while an offer is pending.
+Open its menu and choose **Accept clipboard** to copy using `wl-copy`.
+For custom put commands, continue using `hemeo accept --put-command ...`;
+the icon updates either way. Failed copies leave the offer pending.
+This requires a session D-Bus and a StatusNotifierItem-compatible tray host
+(for example, Waybar with its `tray` module enabled). Sway alone does not
+provide a tray host.
+
 On the sending machine, start the persistent server:
 
 ```sh
