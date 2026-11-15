@@ -1,7 +1,7 @@
 # hemeo — hear me out
 
 Send clipboard content over encrypted TCP, with explicit approval on the receiving machine.
-Defaults to `wl-paste` in `send` and `wl-copy` on the client (`wl-clipboard`);
+Defaults to `wl-paste` in `send` and `wl-copy` in `accept` (`wl-clipboard`);
 custom commands can replace either without requiring Wayland.
 Networking uses Rust's standard library; no SSH is involved.
 
@@ -90,28 +90,28 @@ belonging to a running listener or delete a non-socket file.
 
 The default MIME type is `text/plain`. To transfer an image, use
 `hemeo send --mime-type image/png`.
-The client passes the received MIME type to `wl-copy`. Transfers are limited to
+The accept command passes the received MIME type to `wl-copy`. Transfers are limited to
 64 MiB. `wl-paste --no-newline` avoids adding a newline. Set `WAYLAND_DISPLAY` in
-the environment of either process if needed (for example, `wayland-1`).
+the environment of `send` or `accept` if needed (for example, `wayland-1`).
 
 ## Custom content commands
 
 Set `--get-command` on `send` to choose a shell command whose stdout becomes
-the content for that transfer. Set `--put-command` on the client to
+the content for that transfer. Set `--put-command` on `accept` to
 choose a shell command that receives the content on stdin when you run
 `hemeo accept`.
 
-For example, send `asdf` and print it in the client's terminal:
+For example, send `asdf` and print it in the accepting terminal:
 
 ```sh
 hemeo server --bind 0.0.0.0:7331 --secret 'your-shared-secret'
-hemeo client --server SENDER_IP:7331 --secret 'your-shared-secret' --put-command 'cat'
+hemeo client --server SENDER_IP:7331 --secret 'your-shared-secret'
 ```
 
 Run the server and client on their respective machines, then run
-`hemeo send --get-command 'echo asdf'` on the sender and `hemeo accept` on the
-receiver. The output appears in the running client's terminal,
-not the terminal running `hemeo accept`.
+`hemeo send --get-command 'echo asdf'` on the sender and
+`hemeo accept --put-command 'cat'` on the receiver. The output appears in the
+terminal running `hemeo accept`; it can also be redirected to a file.
 
 Commands run through `sh -c`. Content is passed as raw bytes, never substituted
 into shell code: there is no `{}` placeholder. `cat` is the stdin equivalent of
@@ -126,7 +126,7 @@ Both commands receive `HEMEO_MIME_TYPE`. The put command also receives
 - Put: `wl-copy --type "$HEMEO_MIME_TYPE"`
 
 Only get-command stdout is captured; stderr remains visible. The put command's
-stdout and stderr are inherited from the client. Commands must finish with exit
+stdout and stderr are inherited from `accept`. Commands must finish with exit
 status zero for the operation to succeed. A failed get command prevents sending;
 a failed put command leaves the offer pending and does not fire `--on-accept`.
 Only configure commands you trust, and keep them short-lived.
