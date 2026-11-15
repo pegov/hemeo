@@ -44,14 +44,6 @@ enum Action {
         bind: String,
         #[arg(long)]
         secret: String,
-        #[arg(long, default_value = "text/plain")]
-        mime_type: String,
-        #[arg(
-            long,
-            default_value = "wl-paste --no-newline --type \"$HEMEO_MIME_TYPE\"",
-            help = "Shell command whose stdout supplies the content on each send"
-        )]
-        get_command: String,
         #[arg(long)]
         socket: Option<PathBuf>,
     },
@@ -76,6 +68,14 @@ enum Action {
     },
     #[command(about = "Offer the current clipboard through the running server")]
     Send {
+        #[arg(long, default_value = "text/plain")]
+        mime_type: String,
+        #[arg(
+            long,
+            default_value = "wl-paste --no-newline --type \"$HEMEO_MIME_TYPE\"",
+            help = "Shell command whose stdout supplies the content to send"
+        )]
+        get_command: String,
         #[arg(long)]
         socket: Option<PathBuf>,
     },
@@ -248,25 +248,18 @@ fn main() -> Result<()> {
         Action::Server {
             bind,
             secret,
-            mime_type,
-            get_command,
             socket,
         } => {
             ensure!(
                 !secret.is_empty() && secret.len() <= 4096,
                 "secret must be 1..=4096 bytes"
             );
-            ensure!(
-                !mime_type.is_empty() && mime_type.len() <= 256,
-                "MIME type must be 1..=256 bytes"
-            );
             let listener = TcpListener::bind(&bind).context("bind TCP listener")?;
             let socket = socket_path(socket, true)?;
             let control = control_listener(&socket)?;
-            let (offers, requests) = mpsc::sync_channel::<Vec<u8>>(0);
-            let clipboard_type = mime_type.clone();
+            let (offers, requests) = mpsc::sync_channel::<(String, Vec<u8>)>(0);
             thread::spawn(move || {
-                for data in requests {
+                for (mime_type, data) in requests {
                     let transfer = (|| -> Result<()> {
                         let (mut stream, cipher) = loop {
                             let (mut stream, _) = listener.accept()?;
@@ -307,24 +300,22 @@ fn main() -> Result<()> {
                     let mut command = [0; 5];
                     stream.read_exact(&mut command)?;
                     ensure!(&command == b"SEND\n", "unknown control command");
-                    let output = Command::new("sh")
-                        .args(["-c", &get_command])
-                        .env("HEMEO_MIME_TYPE", &clipboard_type)
-                        .stdin(Stdio::null())
-                        .stderr(Stdio::inherit())
-                        .output()
-                        .context("run get command")?;
-                    ensure!(
-                        output.status.success(),
-                        "get command failed: {}",
-                        output.status
-                    );
-                    ensure!(
-                        output.stdout.len() <= MAX_CLIPBOARD,
-                        "clipboard exceeds 64 MiB"
-                    );
+                    let mut length = [0; 4];
+                    stream.read_exact(&mut length)?;
+                    let length = u32::from_be_bytes(length) as usize;
+                    ensure!((1..=256).contains(&length), "invalid MIME type length");
+                    let mut mime_type = vec![0; length];
+                    stream.read_exact(&mut mime_type)?;
+                    let mime_type = String::from_utf8(mime_type)?;
+                    ensure!(!mime_type.contains('\0'), "invalid MIME type");
+                    let mut length = [0; 4];
+                    stream.read_exact(&mut length)?;
+                    let length = u32::from_be_bytes(length) as usize;
+                    ensure!(length <= MAX_CLIPBOARD, "clipboard exceeds 64 MiB");
+                    let mut data = vec![0; length];
+                    stream.read_exact(&mut data)?;
                     offers
-                        .try_send(output.stdout)
+                        .try_send((mime_type, data))
                         .map_err(|error| match error {
                             mpsc::TrySendError::Full(_) => {
                                 anyhow::anyhow!("server busy with another clipboard offer")
@@ -456,16 +447,52 @@ fn main() -> Result<()> {
             }
         }
         action @ (Action::Accept { .. } | Action::Send { .. }) => {
-            let (socket, send) = match action {
-                Action::Send { socket } => (socket, true),
-                Action::Accept { socket } => (socket, false),
+            let (socket, content) = match action {
+                Action::Send {
+                    socket,
+                    mime_type,
+                    get_command,
+                } => {
+                    ensure!(
+                        !mime_type.is_empty()
+                            && mime_type.len() <= 256
+                            && !mime_type.contains('\0'),
+                        "MIME type must be 1..=256 bytes without NUL"
+                    );
+                    let output = Command::new("sh")
+                        .args(["-c", &get_command])
+                        .env("HEMEO_MIME_TYPE", &mime_type)
+                        .stdin(Stdio::null())
+                        .stderr(Stdio::inherit())
+                        .output()
+                        .context("run get command")?;
+                    ensure!(
+                        output.status.success(),
+                        "get command failed: {}",
+                        output.status
+                    );
+                    ensure!(
+                        output.stdout.len() <= MAX_CLIPBOARD,
+                        "clipboard exceeds 64 MiB"
+                    );
+                    (socket, Some((mime_type, output.stdout)))
+                }
+                Action::Accept { socket } => (socket, None),
                 _ => unreachable!(),
             };
+            let send = content.is_some();
             let socket = socket_path(socket, send)?;
             let mut stream = UnixStream::connect(&socket)
                 .with_context(|| format!("connect to {}", socket.display()))?;
             stream.set_read_timeout(Some(TIMEOUT))?;
+            stream.set_write_timeout(Some(TIMEOUT))?;
             stream.write_all(if send { b"SEND\n" } else { b"ACCEPT\n" })?;
+            if let Some((mime_type, data)) = content {
+                stream.write_all(&u32::try_from(mime_type.len())?.to_be_bytes())?;
+                stream.write_all(mime_type.as_bytes())?;
+                stream.write_all(&u32::try_from(data.len())?.to_be_bytes())?;
+                stream.write_all(&data)?;
+            }
             let mut response = String::new();
             stream.take(4096).read_to_string(&mut response)?;
             if response != "OK\n" {

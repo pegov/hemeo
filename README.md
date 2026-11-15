@@ -1,7 +1,7 @@
 # hemeo — hear me out
 
 Send clipboard content over encrypted TCP, with explicit approval on the receiving machine.
-Defaults to `wl-paste` on the server and `wl-copy` on the client (`wl-clipboard`);
+Defaults to `wl-paste` in `send` and `wl-copy` on the client (`wl-clipboard`);
 custom commands can replace either without requiring Wayland.
 Networking uses Rust's standard library; no SSH is involved.
 
@@ -89,27 +89,28 @@ each listener automatically removes a stale control socket. It refuses to replac
 belonging to a running listener or delete a non-socket file.
 
 The default MIME type is `text/plain`. To transfer an image, use
-`hemeo server --bind 0.0.0.0:7331 --secret 'your-shared-secret' --mime-type image/png`.
+`hemeo send --mime-type image/png`.
 The client passes the received MIME type to `wl-copy`. Transfers are limited to
 64 MiB. `wl-paste --no-newline` avoids adding a newline. Set `WAYLAND_DISPLAY` in
 the environment of either process if needed (for example, `wayland-1`).
 
 ## Custom content commands
 
-Set `--get-command` on the server to choose a shell command whose stdout becomes
-the content each time you run `hemeo send`. Set `--put-command` on the client to
+Set `--get-command` on `send` to choose a shell command whose stdout becomes
+the content for that transfer. Set `--put-command` on the client to
 choose a shell command that receives the content on stdin when you run
 `hemeo accept`.
 
 For example, send `asdf` and print it in the client's terminal:
 
 ```sh
-hemeo server --bind 0.0.0.0:7331 --secret 'your-shared-secret' --get-command 'echo asdf'
+hemeo server --bind 0.0.0.0:7331 --secret 'your-shared-secret'
 hemeo client --server SENDER_IP:7331 --secret 'your-shared-secret' --put-command 'cat'
 ```
 
-Run the server and client on their respective machines, then use `hemeo send`
-and `hemeo accept` as usual. The output appears in the running client's terminal,
+Run the server and client on their respective machines, then run
+`hemeo send --get-command 'echo asdf'` on the sender and `hemeo accept` on the
+receiver. The output appears in the running client's terminal,
 not the terminal running `hemeo accept`.
 
 Commands run through `sh -c`. Content is passed as raw bytes, never substituted
