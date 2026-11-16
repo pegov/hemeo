@@ -122,6 +122,13 @@ hemeo server --bind 0.0.0.0:7331 --secret 'your-shared-secret'
 hemeo client --server SENDER_IP:7331 --secret 'your-shared-secret'
 ```
 
+`--secret` can be replaced by the `HEMEO_SECRET` environment variable on both
+`server` and `client`:
+
+```sh
+HEMEO_SECRET='your-shared-secret' hemeo client --server SENDER_IP:7331
+```
+
 Run the server and client on their respective machines, then run
 `hemeo send --get-command 'echo asdf'` on the sender and
 `hemeo accept --put-command 'cat'` on the receiver. The output appears in the

@@ -18,7 +18,7 @@ pub(crate) enum Action {
     Server {
         #[arg(long, default_value = "127.0.0.1:7331")]
         bind: String,
-        #[arg(long)]
+        #[arg(long, env = "HEMEO_SECRET")]
         secret: String,
         #[arg(long)]
         socket: Option<PathBuf>,
@@ -27,7 +27,7 @@ pub(crate) enum Action {
     Client {
         #[arg(long)]
         server: String,
-        #[arg(long)]
+        #[arg(long, env = "HEMEO_SECRET")]
         secret: String,
         #[arg(long)]
         socket: Option<PathBuf>,
